@@ -1,119 +1,74 @@
-## Verifies that the required libraries get installed if needed
-verify_deps <- function(...) {
-  lapply(list(...), function(lib) {
-    if (!lib %in% installed.packages()) 
-      install.packages(lib)
-  })
+# Step1. Merges the training and the test sets to create one data set.
+# setwd("~/Desktop/Online Coursera/Coursera-Getting-and-Cleaning-Data/peer_assessment/")
+trainData <- read.table("./data/train/X_train.txt")
+dim(trainData) # 7352*561
+head(trainData)
+trainLabel <- read.table("./data/train/y_train.txt")
+table(trainLabel)
+trainSubject <- read.table("./data/train/subject_train.txt")
+testData <- read.table("./data/test/X_test.txt")
+dim(testData) # 2947*561
+testLabel <- read.table("./data/test/y_test.txt") 
+table(testLabel) 
+testSubject <- read.table("./data/test/subject_test.txt")
+joinData <- rbind(trainData, testData)
+dim(joinData) # 10299*561
+joinLabel <- rbind(trainLabel, testLabel)
+dim(joinLabel) # 10299*1
+joinSubject <- rbind(trainSubject, testSubject)
+dim(joinSubject) # 10299*1
+
+# Step2. Extracts only the measurements on the mean and standard 
+# deviation for each measurement. 
+features <- read.table("./data/features.txt")
+dim(features)  # 561*2
+meanStdIndices <- grep("mean\\(\\)|std\\(\\)", features[, 2])
+length(meanStdIndices) # 66
+joinData <- joinData[, meanStdIndices]
+dim(joinData) # 10299*66
+names(joinData) <- gsub("\\(\\)", "", features[meanStdIndices, 2]) # remove "()"
+names(joinData) <- gsub("mean", "Mean", names(joinData)) # capitalize M
+names(joinData) <- gsub("std", "Std", names(joinData)) # capitalize S
+names(joinData) <- gsub("-", "", names(joinData)) # remove "-" in column names 
+
+# Step3. Uses descriptive activity names to name the activities in 
+# the data set
+activity <- read.table("./data/activity_labels.txt")
+activity[, 2] <- tolower(gsub("_", "", activity[, 2]))
+substr(activity[2, 2], 8, 8) <- toupper(substr(activity[2, 2], 8, 8))
+substr(activity[3, 2], 8, 8) <- toupper(substr(activity[3, 2], 8, 8))
+activityLabel <- activity[joinLabel[, 1], 2]
+joinLabel[, 1] <- activityLabel
+names(joinLabel) <- "activity"
+
+# Step4. Appropriately labels the data set with descriptive activity 
+# names. 
+names(joinSubject) <- "subject"
+cleanedData <- cbind(joinSubject, joinLabel, joinData)
+dim(cleanedData) # 10299*68
+write.table(cleanedData, "merged_data.txt") # write out the 1st dataset
+
+# Step5. Creates a second, independent tidy data set with the average of 
+# each variable for each activity and each subject. 
+subjectLen <- length(table(joinSubject)) # 30
+activityLen <- dim(activity)[1] # 6
+columnLen <- dim(cleanedData)[2]
+result <- matrix(NA, nrow=subjectLen*activityLen, ncol=columnLen) 
+result <- as.data.frame(result)
+colnames(result) <- colnames(cleanedData)
+row <- 1
+for(i in 1:subjectLen) {
+  for(j in 1:activityLen) {
+    result[row, 1] <- sort(unique(joinSubject)[, 1])[i]
+    result[row, 2] <- activity[j, 2]
+    bool1 <- i == cleanedData$subject
+    bool2 <- activity[j, 2] == cleanedData$activity
+    result[row, 3:columnLen] <- colMeans(cleanedData[bool1&bool2, 3:columnLen])
+    row <- row + 1
+  }
 }
+head(result)
+write.table(result, "data_with_means.txt") # write out the 2nd dataset
 
-## Verify dependencies
-verify_deps("dplyr", "reshape2")
-
-## Load the dependencies
-library("dplyr")
-library("reshape2")
-
-## The main data directory
-ds_dir <- "UCI HAR Dataset"
-
-## Loads a file
-## Params:
-##  filename .. name of the file to load
-##  ellipsis .. a comma delimited list of directories
-load_file <- function(filename, ...) {
-  file.path(..., filename) %>%
-  read.table(header = FALSE)
-}
-
-## Loads a training file
-load_train_file <- function(filename) {
-  load_file(filename, ds_dir, "train")
-}
-
-## Loads a test file
-load_test_file <- function(filename) {
-  load_file(filename, ds_dir, "test")
-}
-
-## Uses list of activity values to describe test / training labels
-## Params: ds .. label dataset
-## Returns: the original dataset with human readable column name and values
-describe_lbl_ds <- function(ds) {
-  names(ds) <- activity_col  
-  ds$Activity <- factor(ds$Activity, levels = activity_lbl$V1, labels = activity_lbl$V2)
-  ds
-}
-
-## Takes a dataset capturing results of feature tests and associates columns with individual features
-## Params: ds .. activity dataset
-## Returns: the original dataset with columns indicating which feature it describes
-describe_act_ds <- function(ds) {
-  col_names <- gsub("-", "_", features$V2)
-  col_names <- gsub("[^a-zA-Z\\d_]", "", col_names)
-  names(ds) <- make.names(names = col_names, unique = TRUE, allow_ = TRUE)
-  ds
-}
-
-## Adjusts column name in the data set identifying test participants
-describe_sub_ds <- function(ds) {
-  names(ds) <- subject_col
-  ds
-}
-
-## Download and extract a zip file with datasets
-if (!file.exists(ds_dir)) {
-  source_url <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
-  dest_file <- "Dataset.zip"
-  download.file(source_url, destfile = dest_file, method = "curl")
-  unzip(dest_file)
-  if (!file.exists(ds_dir)) 
-    stop("The downloaded dataset doesn't have the expected structure!")
-}
-
-## Custom columns
-subject_col <- "Subject"
-activity_col <- "Activity"
-
-## Load features as human-readable column names
-features <- load_file("features.txt", ds_dir)
-
-## Load activity labels
-activity_lbl <- load_file("activity_labels.txt", ds_dir)
-
-## Use descriptive activity names to name the activities in the data set
-#### Training data
-train_set <- load_train_file("X_train.txt") %>% describe_act_ds
-train_lbl <- load_train_file("y_train.txt") %>% describe_lbl_ds
-train_sub <- load_train_file("subject_train.txt") %>% describe_sub_ds
-
-#### Test data
-test_set <- load_test_file("X_test.txt") %>% describe_act_ds
-test_lbl <- load_test_file("y_test.txt") %>% describe_lbl_ds
-test_sub <- load_test_file("subject_test.txt") %>% describe_sub_ds
-
-## Merge the training and the test sets to create one dataset
-## Extract only the measurements on the mean and standard deviation for each measurement
-merge_data <- rbind(
-                cbind(train_set, train_lbl, train_sub),
-                cbind(test_set, test_lbl, test_sub)
-              ) %>%
-              select(
-                matches("mean|std"), 
-                one_of(subject_col, activity_col)
-              )
-
-## Create a second, independent tidy data set with the average of each variable for each activity and each subject
-id_cols <- c(subject_col, activity_col)
-tidy_data <- melt(
-               merge_data, 
-               id = id_cols, 
-               measure.vars = setdiff(colnames(merge_data), id_cols)
-             ) %>%
-             dcast(Subject + Activity ~ variable, mean)
-             
-## Save the result
-### 'txt' is a requirement
-write.table(tidy_data, file = "tidy_data.txt", sep = ",", row.names = FALSE)
-
-### 'csv' is an addition: it's nicely formatted on GitHub and can be easily imported into a spreadsheet
-write.table(tidy_data, file = "tidy_data.csv", sep = ",", row.names = FALSE)
+# data <- read.table("./data_with_means.txt")
+# data[1:12, 1:3]
